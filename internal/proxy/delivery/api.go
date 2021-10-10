@@ -33,7 +33,6 @@ func NewApi(rep *repositiory.DB, proxy *Proxy) *Api {
 	router.HandleFunc("/repeat/{request_id:[0-9]+}", api.RepeatRequest)
 	router.HandleFunc("/requests/{request_id:[0-9]+}", api.GetRequest)
 	router.HandleFunc("/requests", api.GetAllRequests)
-	router.HandleFunc("/scan/{request_id:[0-9]+}", api.Scan)
 
 	return api
 }
@@ -116,61 +115,4 @@ func (api *Api) GetAllRequests(w http.ResponseWriter, r *http.Request) {
 		w.Write(bytes)
 		w.Write([]byte("\n\n"))
 	}
-}
-
-func (api *Api) Scan(w http.ResponseWriter, r *http.Request) {
-	requestID, err := strconv.Atoi(mux.Vars(r)["request_id"])
-	if err != nil {
-		logrus.Error(err)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-
-	req, err := api.rep.GetRequest(requestID)
-	if err != nil {
-		logrus.Error(err)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-
-	request := &http.Request{
-		Method: req.Method,
-		URL: &url.URL{
-			Scheme: "http",
-			Host:   req.Host,
-			Path:   req.Path,
-		},
-		Body:   ioutil.NopCloser(strings.NewReader(req.Body)),
-		Host:   req.Host,
-		Header: req.Headers,
-	}
-
-	for _, symbol := range []string{";", "|", "`"} {
-		if request.Method == http.MethodGet {
-			request.Host = request.Host + symbol + "cat /etc/passwd" + symbol
-		}
-
-		if request.Method == http.MethodPost {
-			bodyBytes, err := ioutil.ReadAll(request.Body)
-
-			request.Body = ioutil.NopCloser(strings.NewReader(string(bodyBytes) + symbol + "cat /etc/passwd" + symbol))
-			if err != nil {
-				logrus.Error(err)
-			}
-		}
-
-		response, err := api.proxy.HandleHTTPRequest(w, request)
-		if err != nil {
-			logrus.Error(err)
-		}
-
-		if strings.Contains(response, ":root") {
-			w.Write([]byte("vulnerable request"))
-			logrus.Info("vulnerable request")
-			return
-		}
-	}
-
-	logrus.Info("the request contains no vulnerabilities")
-	w.Write([]byte("the request contains no vulnerabilities"))
 }
